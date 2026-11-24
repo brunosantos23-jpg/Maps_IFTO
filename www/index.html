@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoBusca-IFTO | Navegação e Busca de Locais</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- ShpJS (Leitura de Shapefiles .zip no navegador) -->
+    <script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Ajuste de cursor para modo de marcação manual no mapa */
+        .manual-pin-cursor {
+            cursor: crosshair !important;
+        }
+        /* Animação pulsante para o marcador do usuário */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.7); opacity: 0.9; }
+            70% { transform: scale(2.2); opacity: 0; }
+            100% { transform: scale(2.2); opacity: 0; }
+        }
+        .user-location-pulse {
+            position: relative;
+            width: 20px;
+            height: 20px;
+        }
+        .user-location-pulse::before {
+            content: '';
+            position: absolute;
+            inset: -6px;
+            border-radius: 9999px;
+            background-color: rgba(37, 99, 235, 0.45);
+            animation: pulse-ring 1.8s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+        .user-location-dot {
+            position: relative;
+            width: 18px;
+            height: 18px;
+            border-radius: 9999px;
+            background-color: #2563eb;
+            border: 3px solid #ffffff;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+        }
+        /* Scrollbar discreta na barra lateral */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 h-screen w-screen overflow-hidden flex flex-col md:flex-row">
+
+    <!-- BARRA LATERAL -->
+    <aside class="w-full md:w-80 lg:w-96 h-[46vh] md:h-full bg-white shadow-xl z-20 flex flex-col border-b md:border-b-0 md:border-r border-slate-200 shrink-0">
+        <!-- Cabeçalho -->
+        <div class="bg-emerald-700 text-white px-4 py-3.5 flex items-center justify-between shadow-sm">
+            <div>
+                <h1 class="text-base font-bold tracking-tight leading-tight">GeoBusca-IFTO</h1>
+                <p class="text-[11px] text-emerald-100">Navegação e Busca de Locais</p>
+            </div>
+            <span class="text-[11px] bg-emerald-800/80 text-emerald-100 px-2.5 py-1 rounded-full font-medium shrink-0">
+                Campus Palmas
+            </span>
+        </div>
+
+        <!-- Upload de Shapefiles (.zip) -->
+        <div class="p-3 border-b border-slate-100 bg-slate-50/70">
+            <div id="shapefileBox" class="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+                <div class="flex items-center justify-between gap-2">
+                    <h2 class="text-xs font-semibold text-slate-800">Shapefiles do Campus (.zip)</h2>
+                    <span id="mapSourceBadge" class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 shrink-0">
+                        Aguardando .zip
+                    </span>
+                </div>
+                <p id="shapefileHelpText" class="text-[11px] text-slate-500 mt-1 mb-2.5 leading-snug">
+                    Selecione o arquivo <strong>shapes consolidados.zip</strong> (ele ficará salvo automaticamente como padrão):
+                </p>
+                <div class="flex items-center gap-2">
+                    <label for="zipInput" class="cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-3 py-2 rounded-lg shadow-sm transition active:scale-95 shrink-0">
+                        Carregar .zip
+                    </label>
+                    <input type="file" id="zipInput" accept=".zip" class="hidden" />
+                    <span id="fileNameDisplay" class="text-xs text-slate-600 font-medium truncate">
+                        Nenhum arquivo carregado
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Campo de Busca -->
+        <div class="px-3.5 pt-3 pb-2">
+            <label for="searchInput" class="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                Buscar Destino
+            </label>
+            <div class="relative">
+                <svg class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35m0 0A7.5 7.5 0 103.5 10.5a7.5 7.5 0 0013.15 6.15z" />
+                </svg>
+                <input
+                    type="text"
+                    id="searchInput"
+                    placeholder="Filtrar prédios, salas, pontos..."
+                    class="w-full pl-9 pr-8 py-2 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition"
+                />
+                <button id="clearSearchBtn" type="button" class="hidden absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="flex items-center justify-between mt-1.5 text-[11px] text-slate-400">
+                <span id="resultsCount">Aguardando arquivo .zip...</span>
+                <span class="text-emerald-600 font-medium">Partida: IFTO Palmas</span>
+            </div>
+        </div>
+
+        <!-- Lista de Locais -->
+        <div id="locationsList" class="flex-1 overflow-y-auto px-3.5 pb-4 space-y-2">
+            <div class="text-center py-6 px-4 border border-dashed border-emerald-300 rounded-xl bg-emerald-50/40">
+                <p class="text-xs text-slate-600 leading-relaxed">
+                    Clique no botão verde <strong>Carregar .zip</strong> acima e selecione seu arquivo <strong>shapes consolidados.zip</strong> para carregar todos os prédios, caminhos e pontos reais do IFTO.
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ÁREA DO MAPA -->
+    <main class="relative flex-1 h-[54vh] md:h-full w-full overflow-hidden">
+        <div id="map" class="w-full h-full z-10"></div>
+
+        <!-- Painel Superior de Rota Ativa (Distância, Tempo e Cancelar) -->
+        <div id="routePanel" class="hidden absolute top-4 left-1/2 -translate-x-1/2 z-[1000] w-[92%] max-w-md bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-slate-200 p-3.5 transition-all">
+            <div class="flex items-center justify-between gap-3">
+                <div class="min-w-0 flex-1">
+                    <p class="text-[11px] font-semibold uppercase tracking-wider text-emerald-700">Rota Traçada</p>
+                    <h3 id="routeDestName" class="text-sm font-bold text-slate-800 truncate">Destino</h3>
+                    <div class="flex items-center gap-3 mt-1 text-xs text-slate-600">
+                        <span class="inline-flex items-center gap-1 font-semibold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md">
+                            <svg class="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                            </svg>
+                            <span id="routeDistanceText">-- m</span>
+                        </span>
+                        <span class="inline-flex items-center gap-1 font-semibold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md">
+                            <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span id="routeDurationText">-- min</span>
+                        </span>
+                    </div>
+                </div>
+                <button id="cancelRouteBtn" type="button" class="bg-red-500 hover:bg-red-600 text-white text-xs font-semibold px-3.5 py-2.5 rounded-xl shadow-sm transition active:scale-95 flex items-center gap-1.5 shrink-0">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Cancelar Rota
+                </button>
+            </div>
+        </div>
+
+        <!-- Banner de Aviso / Notificação -->
+        <div id="statusToast" class="hidden absolute bottom-20 left-1/2 -translate-x-1/2 z-[1000] max-w-sm w-[90%] bg-slate-900/95 text-white text-xs font-medium px-4 py-3 rounded-xl shadow-2xl border border-slate-700 text-center">
+            <span id="statusToastText">Mensagem do sistema</span>
+        </div>
+
+        <!-- Botão Flutuante de Localização (GPS / Resetar para IFTO) -->
+        <div class="absolute bottom-6 left-4 z-[1000] flex flex-col gap-2">
+            <button id="locateMeBtn" type="button" title="Atualizar minha localização GPS (ou marcar no mapa)" class="w-11 h-11 bg-white hover:bg-slate-50 text-slate-700 rounded-full shadow-lg border border-slate-200 flex items-center justify-center transition active:scale-95">
+                <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="3" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+                    <circle cx="12" cy="12" r="8" stroke-opacity="0.35" />
+                </svg>
+            </button>
+            <button id="resetIftoBtn" type="button" title="Voltar ponto de partida para o IFTO Palmas" class="w-11 h-11 bg-white hover:bg-slate-50 text-emerald-700 rounded-full shadow-lg border border-slate-200 flex items-center justify-center text-[10px] font-extrabold transition active:scale-95">
+                IFTO
+            </button>
+        </div>
+
+        <!-- Legenda do Mapa -->
+        <div class="absolute bottom-6 right-12 z-[1000] bg-white/95 backdrop-blur-sm rounded-xl shadow-lg border border-slate-200 p-3 text-xs">
+            <p class="font-bold text-[10px] uppercase tracking-wider text-slate-500 mb-2">Legenda</p>
+            <div class="space-y-1.5">
+                <div class="flex items-center gap-2">
+                    <span class="w-4 h-1 rounded-full bg-blue-500 inline-block"></span>
+                    <span class="text-slate-700 font-medium">Caminhos</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="w-4 h-3 rounded-sm bg-slate-300 border border-slate-400 inline-block"></span>
+                    <span class="text-slate-700 font-medium">Edificações</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-red-500 border-2 border-white shadow inline-block"></span>
+                    <span class="text-slate-700 font-medium">Pontos de Interesse</span>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        window.addEventListener('DOMContentLoaded', () => {
+            // --- UTILITÁRIOS GERAIS ---
+            function escapeHtml(str) {
+                if (str === null || str === undefined) return '';
+                return String(str)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#039;');
+            }
+
+            let toastTimeout = null;
+            function showToast(message, durationMs = 4500, isAlert = false) {
+                const toast = document.getElementById('statusToast');
+                const toastText = document.getElementById('statusToastText');
+                toastText.textContent = message;
+                toast.classList.remove('hidden', 'bg-slate-900/95', 'bg-blue-700/95', 'bg-red-700/95');
+                toast.classList.add(isAlert ? 'bg-blue-700/95' : 'bg-slate-900/95');
+                if (toastTimeout) clearTimeout(toastTimeout);
+                toastTimeout = setTimeout(() => {
+                    toast.classList.add('hidden');
+                }, durationMs);
+            }
+
+            // --- INICIALIZAÇÃO DO MAPA (GOOGLE SATÉLITE NO IFTO PALMAS) ---
+            const IFTO_DEFAULT_COORDS = [-10.1995, -48.3118]; // IFTO - Campus Palmas
+
+            const map = L.map('map', {
+                center: IFTO_DEFAULT_COORDS,
+                zoom: 18,
+                maxZoom: 22,
+                zoomControl: true
+            });
+
+            // Camada de Satélite do Google com alta nitidez
+            L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+                maxNativeZoom: 19,
+                maxZoom: 22,
+                attribution: '&copy; Google Maps'
+            }).addTo(map);
+
+            // Grupos de camadas para organização visual
+            const pathsLayerGroup = L.layerGroup().addTo(map);
+            const buildingsLayerGroup = L.layerGroup().addTo(map);
+            const poiLayerGroup = L.layerGroup().addTo(map);
+            const activeRouteLayerGroup = L.layerGroup().addTo(map);
+
+            // --- ESTADO DA APLICAÇÃO ---
+            let allIndexedLocations = [];
+            let buildingPolygons = []; // Polígonos das edificações para desvio de obstáculos
+            let internalGraph = { nodes: [], adj: new Map() }; // Grafo dos caminhos internos
+            let userCurrentLatLng = [...IFTO_DEFAULT_COORDS];
+            let userStandaloneMarker = null;
+            let waitingForManualLocation = false;
+            let pendingDestination = null;
+            let currentAbortController = null;
+
+            function createUserIcon() {
+                return L.divIcon({
+                    className: '',
+                    html: `<div class="user-location-pulse"><div class="user-location-dot"></div></div>`,
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10]
+                });
+            }
+
+            function setUserStandaloneLocation(latLng, flyToPoint = true, label = 'IFTO - Campus Palmas (Ponto de Partida)') {
+                userCurrentLatLng = [latLng[0], latLng[1]];
+                if (userStandaloneMarker) {
+                    map.removeLayer(userStandaloneMarker);
+                }
+                userStandaloneMarker = L.marker(userCurrentLatLng, { icon: createUserIcon() })
+                    .bindPopup(`<b>${escapeHtml(label)}</b>`)
+                    .addTo(map);
+
+                if (flyToPoint) {
+                    map.flyTo(userCurrentLatLng, Math.max(map.getZoom(), 18), { duration: 1.0 });
+                }
+            }
+
+            // Inicia já posicionado no IFTO Campus Palmas
+            setUserStandaloneLocation(IFTO_DEFAULT_COORDS, false, 'IFTO - Campus Palmas (Localização Padrão)');
+
+            // --- FUNÇÕES GEOMÉTRICAS E DE GRAFO (ROTEAMENTO COM CURVAS E DESVIO DE PRÉDIOS) ---
+            function haversineMeters(lat1, lon1, lat2, lon2) {
+                const R = 6371000;
+                const toRad = deg => (deg * Math.PI) / 180;
+                const dLat = toRad(lat2 - lat1);
+                const dLon = toRad(lon2 - lon1);
+                const a = Math.sin(dLat / 2) ** 2 +
+                          Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+                return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            }
+
+            // Verifica se um ponto está dentro de um polígono (Ray-Casting)
+            function isPointInPolygon(lat, lng, ring) {
+                let inside = false;
+                for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+                    const xi = ring[i][0], yi = ring[i][1];
+                    const xj = ring[j][0], yj = ring[j][1];
+                    const intersect = ((yi > lng) !== (yj > lng)) &&
+                        (lat < ((xj - xi) * (lng - yi)) / ((yj - yi) || 1e-12) + xi);
+                    if (intersect) inside = !inside;
+                }
+                return inside;
+            }
+
+            // Verifica se o segmento AB atravessa alguma edificação mapeada
+            function segmentIntersectsBuildings(latA, lngA, latB, lngB) {
+                if (buildingPolygons.length === 0) return false;
+                const steps = 6;
+                for (let s = 1; s < steps; s++) {
+                    const t = s / steps;
+                    const lat = latA + (latB - latA) * t;
+                    const lng = lngA + (lngB - lngA) * t;
+                    for (let b = 0; b < buildingPolygons.length; b++) {
+                        if (isPointInPolygon(lat, lng, buildingPolygons[b])) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+
+            // Constrói o grafo subdividido a partir dos caminhos do shapefile
+            function buildInternalPathGraph(lineCoordinateArrays) {
+                const nodes = [];
+                const adj = new Map();
+                const coordMap = new Map();
+
+                function getOrCreateNode(lat, lng) {
+                    const key = `${lat.toFixed(5)}_${lng.toFixed(5)}`;
+                    if (coordMap.has(key)) return coordMap.get(key);
+                    const id = nodes.length;
+                    nodes.push({ id, lat, lng });
+                    adj.set(id, []);
+                    coordMap.set(key, id);
+                    return id;
+                }
+
+                function addUndirectedEdge(u, v) {
+                    if (u === v) return;
+                    const dist = haversineMeters(nodes[u].lat, nodes[u].lng, nodes[v].lat, nodes[v].lng);
+                    if (!adj.get(u).some(e => e.to === v)) {
+                        adj.get(u).push({ to: v, weight: dist });
+                        adj.get(v).push({ to: u, weight: dist });
+                    }
+                }
+
+                // Subdivide cada linha a cada ~5 metros para garantir conexões em cruzamentos em "T"
+                lineCoordinateArrays.forEach(coords => {
+                    for (let i = 0; i < coords.length - 1; i++) {
+                        const [lng1, lat1] = coords[i];
+                        const [lng2, lat2] = coords[i + 1];
+                        const segDist = haversineMeters(lat1, lng1, lat2, lng2);
+                        const subdivisions = Math.max(1, Math.ceil(segDist / 5));
+
+                        let prevNodeId = getOrCreateNode(lat1, lng1);
+                        for (let step = 1; step <= subdivisions; step++) {
+                            const t = step / subdivisions;
+                            const lat = lat1 + (lat2 - lat1) * t;
+                            const lng = lng1 + (lng2 - lng1) * t;
+                            const currNodeId = getOrCreateNode(lat, lng);
+                            addUndirectedEdge(prevNodeId, currNodeId);
+                            prevNodeId = currNodeId;
+                        }
+                    }
+                });
+
+                // Conecta pequenas falhas/folgas (até 12m) entre trechos próximos dos shapefiles
+                for (let i = 0; i < nodes.length; i++) {
+                    for (let j = i + 1; j < nodes.length; j++) {
+                        const dLat = Math.abs(nodes[i].lat - nodes[j].lat);
+                        const dLng = Math.abs(nodes[i].lng - nodes[j].lng);
+                        if (dLat > 0.00015 || dLng > 0.00015) continue;
+                        const d = haversineMeters(nodes[i].lat, nodes[i].lng, nodes[j].lat, nodes[j].lng);
+                        if (d > 0.2 && d <= 12) {
+                            if (!segmentIntersectsBuildings(nodes[i].lat, nodes[i].lng, nodes[j].lat, nodes[j].lng)) {
+                                addUndirectedEdge(i, j);
+                            }
+                        }
+                    }
+                }
+
+                internalGraph = { nodes, adj };
+            }
+
+            function findNearestGraphNode(lat, lng) {
+                let bestId = -1;
+                let bestDist = Infinity;
+                for (let i = 0; i < internalGraph.nodes.length; i++) {
+                    const n = internalGraph.nodes[i];
+                    const d = haversineMeters(lat, lng, n.lat, n.lng);
+                    if (d < bestDist) {
+                        bestDist = d;
+                        bestId = i;
+                    }
+                }
+                return { nodeId: bestId, distance: bestDist };
+            }
+
+            // Algoritmo de Dijkstra no grafo interno
+            function shortestInternalPath(startId, endId) {
+                const nCount = internalGraph.nodes.length;
+                if (startId < 0 || endId < 0 || nCount === 0) return null;
+
+                const dist = new Float64Array(nCount).fill(Infinity);
+                const prev = new Int32Array(nCount).fill(-1);
+                const visited = new Uint8Array(nCount);
+
+                dist[startId] = 0;
+
+                for (let step = 0; step < nCount; step++) {
+                    let u = -1;
+                    let best = Infinity;
+                    for (let i = 0; i < nCount; i++) {
+                        if (!visited[i] && dist[i] < best) {
+                            best = dist[i];
+                            u = i;
+                        }
+                    }
+                    if (u === -1 || u === endId) break;
+                    visited[u] = 1;
+
+                    const neighbors = internalGraph.adj.get(u) || [];
+                    for (let k = 0; k < neighbors.length; k++) {
+                        const edge = neighbors[k];
+                        if (visited[edge.to]) continue;
+                        const alt = dist[u] + edge.weight;
+                        if (alt < dist[edge.to]) {
+                            dist[edge.to] = alt;
+                            prev[edge.to] = u;
+                        }
+                    }
+                }
+
+                if (dist[endId] === Infinity) return null;
+
+                const pathCoords = [];
+                let curr = endId;
+                while (curr !== -1) {
+                    pathCoords.push([internalGraph.nodes[curr].lat, internalGraph.nodes[curr].lng]);
+                    curr = prev[curr];
+                }
+                pathCoords.reverse();
+                return { coords: pathCoords, distance: dist[endId] };
+            }
+
+            // Desvia de edificações em pequenos trechos de acesso (entre ponto e calçada)
+            function avoidBuildingsSegment(startLatLng, endLatLng) {
+                const [latA, lngA] = startLatLng;
+                const [latB, lngB] = endLatLng;
+                if (!segmentIntersectsBuildings(latA, lngA, latB, lngB)) {
+                    return [startLatLng, endLatLng];
+                }
+
+                const midLat = (latA + latB) / 2;
+                const midLng = (lngA + lngB) / 2;
+                const dLat = latB - latA;
+                const dLng = lngB - lngA;
+
+                const offsets = [0.00012, -0.00012, 0.00025, -0.00025, 0.00045, -0.00045];
+                for (let i = 0; i < offsets.length; i++) {
+                    const scale = offsets[i];
+                    const candLat = midLat - dLng * scale * 5000;
+                    const candLng = midLng + dLat * scale * 5000;
+                    if (
+                        !segmentIntersectsBuildings(latA, lngA, candLat, candLng) &&
+                        !segmentIntersectsBuildings(candLat, candLng, latB, lngB)
+                    ) {
+                        return [startLatLng, [candLat, candLng], endLatLng];
+                    }
+                }
+                return [startLatLng, endLatLng];
+            }
+
+            function extractFeatureName(props, categoryTag, indexNumber) {
+                if (props) {
+                    const priorityKeys = [
+                        'nome', 'NOME', 'Nome', 'name', 'NAME', 'Name',
+                        'descricao', 'DESCRICAO', 'Descricao', 'titulo', 'TITULO',
+                        'bloco', 'BLOCO', 'local', 'LOCAL', 'identifica', 'IDENTIFICA', 'label', 'LABEL'
+                    ];
+                    for (const key of priorityKeys) {
+                        if (props[key] !== undefined && props[key] !== null && String(props[key]).trim() !== '') {
+                            return String(props[key]).trim();
+                        }
+                    }
+                    for (const key of Object.keys(props)) {
+                        const val = props[key];
+                        if (typeof val === 'string' && val.trim().length > 1 && !/^\d+(\.\d+)?$/.test(val.trim())) {
+                            return val.trim();
+                        }
+                    }
+                }
+                const readableCategory = categoryTag === 'CAMINHOS'
+                    ? 'Caminho'
+                    : categoryTag === 'EDIFICACOES'
+                        ? 'Edificação'
+                        : 'Ponto de Interesse';
+                return `${readableCategory} #${indexNumber} (Sem nome)`;
+            }
+
+            function getFeatureCenterLatLng(feature) {
+                try {
+                    const tempLayer = L.geoJSON(feature);
+                    const bounds = tempLayer.getBounds();
+                    if (bounds && bounds.isValid()) {
+                        const center = bounds.getCenter();
+                        return [center.lat, center.lng];
+                    }
+                } catch (e) {
+                    // Fallback abaixo
+                }
+                const coords = feature.geometry.coordinates;
+                if (feature.geometry.type === 'Point') {
+                    return [coords[1], coords[0]];
+                }
+                return [...IFTO_DEFAULT_COORDS];
+            }
+
+            // --- PERSISTÊNCIA LOCAL (INDEXEDDB) ---
+            const DB_NAME = 'GeoBuscaIFTO_DB';
+            const STORE_NAME = 'shapefiles';
+            const DEFAULT_ZIP_KEY = 'shapes_consolidados_default';
+
+            function openShapefileDB() {
+                return new Promise((resolve, reject) => {
+                    const req = indexedDB.open(DB_NAME, 1);
+                    req.onupgradeneeded = () => {
+                        const db = req.result;
+                        if (!db.objectStoreNames.contains(STORE_NAME)) {
+                            db.createObjectStore(STORE_NAME);
+                        }
+                    };
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => reject(req.error);
+                });
+            }
+
+            async function saveDefaultZipBuffer(arrayBuffer, fileName) {
+                try {
+                    const db = await openShapefileDB();
+                    const tx = db.transaction(STORE_NAME, 'readwrite');
+                    tx.objectStore(STORE_NAME).put({ buffer: arrayBuffer, name: fileName }, DEFAULT_ZIP_KEY);
+                } catch (err) {
+                    console.warn('Não foi possível salvar cache local:', err);
+                }
+            }
+
+            async function loadSavedZipBuffer() {
+                try {
+                    const db = await openShapefileDB();
+                    return await new Promise((resolve) => {
+                        const tx = db.transaction(STORE_NAME, 'readonly');
+                        const req = tx.objectStore(STORE_NAME).get(DEFAULT_ZIP_KEY);
+                        req.onsuccess = () => resolve(req.result || null);
+                        req.onerror = () => resolve(null);
+                    });
+                } catch (err) {
+                    return null;
+                }
+            }
+
+            // --- PROCESSAMENTO E RENDERIZAÇÃO DOS SHAPEFILES ---
+            function processGeoJsonCollections(collections, sourceLabel, badgeText, fitMapToBounds = true) {
+                pathsLayerGroup.clearLayers();
+                buildingsLayerGroup.clearLayers();
+                poiLayerGroup.clearLayers();
+                activeRouteLayerGroup.clearLayers();
+                document.getElementById('routePanel').classList.add('hidden');
+
+                if (!map.hasLayer(poiLayerGroup)) {
+                    poiLayerGroup.addTo(map);
+                }
+
+                allIndexedLocations = [];
+                buildingPolygons = [];
+                const collectedPathLines = [];
+                let fallbackCounter = 1;
+
+                collections.forEach((fc) => {
+                    if (!fc || !Array.isArray(fc.features)) return;
+                    const fileNameRaw = (fc.fileName || 'CAMADA').toUpperCase();
+
+                    fc.features.forEach((feature) => {
+                        if (!feature || !feature.geometry) return;
+                        const geomType = feature.geometry.type;
+                        const isPathLayer = fileNameRaw.includes('CAMINHO') || fileNameRaw.includes('RUA') || fileNameRaw.includes('VIA') || geomType === 'LineString' || geomType === 'MultiLineString';
+                        const isBuildingLayer = fileNameRaw.includes('EDIFICA') || fileNameRaw.includes('PREDIO') || fileNameRaw.includes('BLOCO') || geomType === 'Polygon' || geomType === 'MultiPolygon';
+
+                        let categoryTag = 'PONTOS_DE_INTERESSE';
+                        if (isPathLayer) categoryTag = 'CAMINHOS';
+                        else if (isBuildingLayer) categoryTag = 'EDIFICACOES';
+
+                        const displayName = extractFeatureName(feature.properties, categoryTag, fallbackCounter++);
+                        const centerLatLng = getFeatureCenterLatLng(feature);
+
+                        allIndexedLocations.push({
+                            id: allIndexedLocations.length,
+                            name: displayName,
+                            category: categoryTag,
+                            center: centerLatLng,
+                            feature: feature
+                        });
+
+                        // Extrai linhas para o grafo de rotas internas
+                        if (geomType === 'LineString') {
+                            collectedPathLines.push(feature.geometry.coordinates);
+                        } else if (geomType === 'MultiLineString') {
+                            feature.geometry.coordinates.forEach(line => collectedPathLines.push(line));
+                        }
+
+                        // Extrai polígonos para evitar atravessar edificações
+                        if (geomType === 'Polygon') {
+                            const outerRing = feature.geometry.coordinates[0].map(c => [c[1], c[0]]);
+                            buildingPolygons.push(outerRing);
+                        } else if (geomType === 'MultiPolygon') {
+                            feature.geometry.coordinates.forEach(poly => {
+                                const outerRing = poly[0].map(c => [c[1], c[0]]);
+                                buildingPolygons.push(outerRing);
+                            });
+                        }
+
+                        // Renderização no mapa com alinhamento exato do shapefile
+                        if (isPathLayer) {
+                            L.geoJSON(feature, {
+                                style: { color: '#3b82f6', weight: 3.5, opacity: 0.85 }
+                            }).bindPopup(`<b>${escapeHtml(displayName)}</b><br><span class="text-xs text-slate-500">Caminho</span>`)
+                              .addTo(pathsLayerGroup);
+                        } else if (isBuildingLayer) {
+                            L.geoJSON(feature, {
+                                style: {
+                                    color: '#475569',
+                                    weight: 1.5,
+                                    fillColor: '#cbd5e1',
+                                    fillOpacity: 0.45
+                                }
+                            }).bindPopup(`<b>${escapeHtml(displayName)}</b><br><span class="text-xs text-slate-500">Edificação</span>`)
+                              .on('click', () => startRouteToDestination({ name: displayName, center: centerLatLng, feature }))
+                              .addTo(buildingsLayerGroup);
+                        } else {
+                            L.circleMarker(centerLatLng, {
+                                radius: 5.5,
+                                fillColor: '#ef4444',
+                                color: '#ffffff',
+                                weight: 1.5,
+                                fillOpacity: 0.95
+                            }).bindPopup(`<b>${escapeHtml(displayName)}</b><br><span class="text-xs text-slate-500">Ponto de Interesse</span>`)
+                              .on('click', () => startRouteToDestination({ name: displayName, center: centerLatLng, feature }))
+                              .addTo(poiLayerGroup);
+                        }
+                    });
+                });
+
+                // Ordena alfabeticamente A-Z
+                allIndexedLocations.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }));
+
+                // Constrói o grafo de caminhos internos
+                buildInternalPathGraph(collectedPathLines);
+
+                // Atualiza a barra lateral com todos os locais
+                renderLocationsList(document.getElementById('searchInput').value);
+
+                document.getElementById('fileNameDisplay').textContent = sourceLabel;
+                const badgeEl = document.getElementById('mapSourceBadge');
+                badgeEl.textContent = badgeText;
+                badgeEl.className = 'text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 shrink-0';
+                document.getElementById('shapefileHelpText').textContent = 'Base real carregada e salva automaticamente neste navegador.';
+
+                if (fitMapToBounds && allIndexedLocations.length > 0) {
+                    const allBounds = L.latLngBounds(allIndexedLocations.map(loc => loc.center));
+                    if (allBounds.isValid()) {
+                        map.fitBounds(allBounds, { padding: [35, 35], maxZoom: 19 });
+                    }
+                }
+            }
+
+            async function loadZipFromBuffer(arrayBuffer, fileName, badgeText = 'Shapefile Salvo', fitMapToBounds = true) {
+                const geojsonResult = await shp(arrayBuffer);
+                const collections = Array.isArray(geojsonResult) ? geojsonResult : [geojsonResult];
+                processGeoJsonCollections(collections, fileName, badgeText, fitMapToBounds);
+            }
+
+            document.getElementById('zipInput').addEventListener('change', async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                showToast('Carregando seus shapefiles e alinhando ao mapa...', 5000, true);
+
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    await loadZipFromBuffer(arrayBuffer, file.name, 'Mapa Real Ativo', true);
+                    await saveDefaultZipBuffer(arrayBuffer, file.name);
+                    showToast(`"${file.name}" carregado e salvo como padrão!`, 4000, true);
+                } catch (err) {
+                    console.error('Erro ao ler shapefile:', err);
+                    showToast('Não foi possível ler o arquivo .zip. Verifique se contém arquivos .shp e .dbf válidos.', 5500, false);
+                }
+            });
+
+            // --- LISTA E FILTRO DE LOCAIS NA BARRA LATERAL ---
+            const searchInput = document.getElementById('searchInput');
+            const clearSearchBtn = document.getElementById('clearSearchBtn');
+            const locationsListEl = document.getElementById('locationsList');
+            const resultsCountEl = document.getElementById('resultsCount');
+
+            function highlightMatch(text, query) {
+                if (!query) return escapeHtml(text);
+                const safeText = escapeHtml(text);
+                const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp(`(${escapedQuery})`, 'gi');
+                return safeText.replace(regex, '<mark class="bg-amber-200 text-slate-900 px-0.5 rounded">$1</mark>');
+            }
+
+            function renderLocationsList(filterQuery = '') {
+                const query = filterQuery.trim();
+                clearSearchBtn.classList.toggle('hidden', query.length === 0);
+
+                if (allIndexedLocations.length === 0) {
+                    resultsCountEl.textContent = 'Aguardando arquivo .zip...';
+                    return;
+                }
+
+                const filtered = query
+                    ? allIndexedLocations.filter(loc =>
+                        loc.name.toLowerCase().includes(query.toLowerCase()) ||
+                        loc.category.toLowerCase().includes(query.toLowerCase())
+                    )
+                    : allIndexedLocations;
+
+                resultsCountEl.textContent = `${filtered.length} ${filtered.length === 1 ? 'local encontrado' : 'locais disponíveis'}`;
+
+                if (filtered.length === 0) {
+                    locationsListEl.innerHTML = `
+                        <div class="text-center py-8 px-4 border border-dashed border-slate-200 rounded-xl">
+                            <p class="text-xs text-slate-500">Nenhum local encontrado para "<strong>${escapeHtml(query)}</strong>".</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                locationsListEl.innerHTML = '';
+                filtered.forEach((loc) => {
+                    const card = document.createElement('button');
+                    card.type = 'button';
+                    card.className = 'w-full text-left p-3.5 rounded-xl border border-slate-200 bg-white hover:border-emerald-500 hover:bg-emerald-50/40 shadow-sm transition flex items-center justify-between gap-2 group';
+                    card.innerHTML = `
+                        <div class="min-w-0 flex-1">
+                            <p class="text-sm font-semibold text-slate-800 group-hover:text-emerald-800 truncate">
+                                ${highlightMatch(loc.name, query)}
+                            </p>
+                            <p class="text-[11px] font-medium tracking-wide text-slate-400 uppercase mt-0.5">
+                                ${escapeHtml(loc.category)}
+                            </p>
+                        </div>
+                        <span class="w-8 h-8 rounded-lg bg-slate-100 group-hover:bg-emerald-600 text-slate-500 group-hover:text-white flex items-center justify-center transition shrink-0">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                            </svg>
+                        </span>
+                    `;
+                    card.addEventListener('click', () => {
+                        startRouteToDestination(loc);
+                    });
+                    locationsListEl.appendChild(card);
+                });
+            }
+
+            searchInput.addEventListener('input', (e) => renderLocationsList(e.target.value));
+            clearSearchBtn.addEventListener('click', () => {
+                searchInput.value = '';
+                renderLocationsList('');
+                searchInput.focus();
+            });
+
+            // --- CONTROLE DE LOCALIZAÇÃO (GPS OU MARCAÇÃO MANUAL) ---
+            function requestBrowserLocation(isForRoute = false) {
+                if (!navigator.geolocation) {
+                    enableManualPinMode(isForRoute);
+                    return;
+                }
+
+                showToast('Solicitando permissão de GPS ao navegador...', 3500, true);
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        waitingForManualLocation = false;
+                        document.getElementById('map').classList.remove('manual-pin-cursor');
+                        const coords = [pos.coords.latitude, pos.coords.longitude];
+                        setUserStandaloneLocation(coords, true, 'Sua Localização GPS');
+                        showToast('Localização GPS atualizada com sucesso!', 3000, true);
+                        if (isForRoute && pendingDestination) {
+                            computeAndDrawRoute(coords, pendingDestination);
+                        }
+                    },
+                    () => {
+                        enableManualPinMode(isForRoute);
+                    },
+                    { enableHighAccuracy: true, timeout: 6000, maximumAge: 10000 }
+                );
+            }
+
+            function enableManualPinMode(isForRoute = false) {
+                waitingForManualLocation = true;
+                document.getElementById('map').classList.add('manual-pin-cursor');
+                showToast(
+                    'GPS bloqueado pelo navegador. CLIQUE EM QUALQUER PONTO DO MAPA para marcar sua posição de saída!',
+                    7000,
+                    true
+                );
+            }
+
+            map.on('click', (e) => {
+                if (!waitingForManualLocation) return;
+                waitingForManualLocation = false;
+                document.getElementById('map').classList.remove('manual-pin-cursor');
+
+                const clickedCoords = [e.latlng.lat, e.latlng.lng];
+                setUserStandaloneLocation(clickedCoords, false, 'Ponto de Partida Marcado');
+                showToast('Ponto de partida definido no mapa!', 3000, true);
+
+                if (pendingDestination) {
+                    computeAndDrawRoute(clickedCoords, pendingDestination);
+                    pendingDestination = null;
+                }
+            });
+
+            document.getElementById('locateMeBtn').addEventListener('click', () => {
+                requestBrowserLocation(false);
+            });
+
+            document.getElementById('resetIftoBtn').addEventListener('click', () => {
+                waitingForManualLocation = false;
+                document.getElementById('map').classList.remove('manual-pin-cursor');
+                setUserStandaloneLocation(IFTO_DEFAULT_COORDS, true, 'IFTO - Campus Palmas (Localização Padrão)');
+                showToast('Localização redefinida para o IFTO - Campus Palmas.', 3000, true);
+            });
+
+            // --- MOTOR DE TRAÇADO DE ROTAS COM CURVAS E ESTIMATIVA DE TEMPO/DISTÂNCIA ---
+            function startRouteToDestination(destinationObj) {
+                pendingDestination = destinationObj;
+                if (userCurrentLatLng && userCurrentLatLng.length === 2) {
+                    computeAndDrawRoute(userCurrentLatLng, destinationObj);
+                } else {
+                    requestBrowserLocation(true);
+                }
+            }
+
+            function formatDistance(meters) {
+                if (meters < 1000) return `${Math.round(meters)} m`;
+                return `${(meters / 1000).toFixed(2)} km`;
+            }
+
+            function formatWalkingDuration(meters) {
+                // Velocidade média de caminhada no campus: ~1.35 m/s (~4.8 km/h)
+                const seconds = Math.round(meters / 1.35);
+                if (seconds < 60) return `${Math.max(10, seconds)} seg`;
+                const mins = Math.round(seconds / 60);
+                if (mins < 60) return `${mins} min`;
+                const hrs = Math.floor(mins / 60);
+                const remMins = mins % 60;
+                return `${hrs}h ${remMins}min`;
+            }
+
+            async function fetchExternalStreetRoute(startLatLng, endLatLng) {
+                if (currentAbortController) {
+                    currentAbortController.abort();
+                }
+                currentAbortController = new AbortController();
+                const timeoutId = setTimeout(() => currentAbortController.abort(), 4500);
+
+                try {
+                    const url = `https://router.project-osrm.org/route/v1/foot/${startLatLng[1]},${startLatLng[0]};${endLatLng[1]},${endLatLng[0]}?overview=full&geometries=geojson`;
+                    const resp = await fetch(url, { signal: currentAbortController.signal });
+                    clearTimeout(timeoutId);
+                    if (!resp.ok) return null;
+                    const data = await resp.json();
+                    if (data && data.routes && data.routes.length > 0) {
+                        const route = data.routes[0];
+                        const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
+                        return { coords, distance: route.distance };
+                    }
+                } catch (e) {
+                    // Falha silenciosa e segue para o roteamento local
+                }
+                return null;
+            }
+
+            async function computeAndDrawRoute(originLatLng, destinationObj) {
+                const destLatLng = destinationObj.center;
+                activeRouteLayerGroup.clearLayers();
+
+                // Oculta os demais pontos de interesse para dar foco exclusivo ao destino selecionado
+                if (map.hasLayer(poiLayerGroup)) {
+                    map.removeLayer(poiLayerGroup);
+                }
+
+                // Destaca o polígono ou marcador de destino
+                if (destinationObj.feature) {
+                    L.geoJSON(destinationObj.feature, {
+                        style: {
+                            color: '#f97316',
+                            weight: 3,
+                            fillColor: '#fb923c',
+                            fillOpacity: 0.45
+                        }
+                    }).addTo(activeRouteLayerGroup);
+                }
+
+                // Pino de destino
+                L.circleMarker(destLatLng, {
+                    radius: 8,
+                    fillColor: '#f97316',
+                    color: '#ffffff',
+                    weight: 2.5,
+                    fillOpacity: 1
+                }).bindPopup(`<b>Destino:</b> ${escapeHtml(destinationObj.name)}`)
+                  .addTo(activeRouteLayerGroup);
+
+                let totalMeters = 0;
+                const allRouteBoundsCoords = [originLatLng, destLatLng];
+
+                // 1. Verifica proximidade com a malha de caminhos internos do campus
+                const startSnap = findNearestGraphNode(originLatLng[0], originLatLng[1]);
+                const endSnap = findNearestGraphNode(destLatLng[0], destLatLng[1]);
+
+                let internalUsed = false;
+
+                if (startSnap.nodeId !== -1 && endSnap.nodeId !== -1 && startSnap.distance <= 900 && endSnap.distance <= 900) {
+                    const internalResult = shortestInternalPath(startSnap.nodeId, endSnap.nodeId);
+
+                    if (internalResult && internalResult.coords.length > 0) {
+                        internalUsed = true;
+                        const entryNodeCoord = internalResult.coords[0];
+                        const exitNodeCoord = internalResult.coords[internalResult.coords.length - 1];
+
+                        // Se o usuário estiver longe da entrada do campus (> 150m), usa OSRM nas ruas externas até o ponto mais próximo do campus
+                        if (startSnap.distance > 150) {
+                            const streetRoute = await fetchExternalStreetRoute(originLatLng, entryNodeCoord);
+                            if (streetRoute && streetRoute.coords.length > 1) {
+                                L.polyline(streetRoute.coords, {
+                                    color: '#10b981',
+                                    weight: 5,
+                                    opacity: 0.9
+                                }).addTo(activeRouteLayerGroup);
+                                totalMeters += streetRoute.distance;
+                                streetRoute.coords.forEach(c => allRouteBoundsCoords.push(c));
+                            } else {
+                                const accessStart = avoidBuildingsSegment(originLatLng, entryNodeCoord);
+                                L.polyline(accessStart, {
+                                    color: '#10b981',
+                                    weight: 4,
+                                    dashArray: '6, 8'
+                                }).addTo(activeRouteLayerGroup);
+                                for (let i = 0; i < accessStart.length - 1; i++) {
+                                    totalMeters += haversineMeters(accessStart[i][0], accessStart[i][1], accessStart[i + 1][0], accessStart[i + 1][1]);
+                                }
+                            }
+                        } else {
+                            // Trecho curto de acesso inicial desviando de prédios
+                            const accessStart = avoidBuildingsSegment(originLatLng, entryNodeCoord);
+                            L.polyline(accessStart, {
+                                color: '#2563eb',
+                                weight: 4,
+                                dashArray: '5, 7',
+                                opacity: 0.85
+                            }).addTo(activeRouteLayerGroup);
+                            for (let i = 0; i < accessStart.length - 1; i++) {
+                                totalMeters += haversineMeters(accessStart[i][0], accessStart[i][1], accessStart[i + 1][0], accessStart[i + 1][1]);
+                            }
+                        }
+
+                        // Traçado principal seguindo todas as curvas dos caminhos internos do IFTO
+                        L.polyline(internalResult.coords, {
+                            color: '#2563eb',
+                            weight: 6,
+                            opacity: 0.95,
+                            lineJoin: 'round',
+                            lineCap: 'round'
+                        }).addTo(activeRouteLayerGroup);
+                        totalMeters += internalResult.distance;
+                        internalResult.coords.forEach(c => allRouteBoundsCoords.push(c));
+
+                        // Trecho final até a porta/centro do destino desviando de construções
+                        const accessEnd = avoidBuildingsSegment(exitNodeCoord, destLatLng);
+                        L.polyline(accessEnd, {
+                            color: '#2563eb',
+                            weight: 4,
+                            dashArray: '5, 7',
+                            opacity: 0.85
+                        }).addTo(activeRouteLayerGroup);
+                        for (let i = 0; i < accessEnd.length - 1; i++) {
+                            totalMeters += haversineMeters(accessEnd[i][0], accessEnd[i][1], accessEnd[i + 1][0], accessEnd[i + 1][1]);
+                        }
+                    }
+                }
+
+                // 2. Fallback caso o shapefile não tenha camada de caminhos ou esteja desconectado
+                if (!internalUsed) {
+                    const streetFallback = await fetchExternalStreetRoute(originLatLng, destLatLng);
+                    if (streetFallback && streetFallback.coords.length > 1) {
+                        L.polyline(streetFallback.coords, {
+                            color: '#10b981',
+                            weight: 5,
+                            opacity: 0.9
+                        }).addTo(activeRouteLayerGroup);
+                        totalMeters = streetFallback.distance;
+                        streetFallback.coords.forEach(c => allRouteBoundsCoords.push(c));
+                    } else {
+                        const safePath = avoidBuildingsSegment(originLatLng, destLatLng);
+                        L.polyline(safePath, {
+                            color: '#2563eb',
+                            weight: 5,
+                            dashArray: '7, 7'
+                        }).addTo(activeRouteLayerGroup);
+                        for (let i = 0; i < safePath.length - 1; i++) {
+                            totalMeters += haversineMeters(safePath[i][0], safePath[i][1], safePath[i + 1][0], safePath[i + 1][1]);
+                        }
+                        safePath.forEach(c => allRouteBoundsCoords.push(c));
+                    }
+                }
+
+                // Atualiza painel superior com Distância e Estimativa de Tempo
+                document.getElementById('routeDestName').textContent = destinationObj.name;
+                document.getElementById('routeDistanceText').textContent = formatDistance(totalMeters);
+                document.getElementById('routeDurationText').textContent = formatWalkingDuration(totalMeters);
+                document.getElementById('routePanel').classList.remove('hidden');
+
+                // Enquadra toda a rota na tela
+                const bounds = L.latLngBounds(allRouteBoundsCoords);
+                if (bounds.isValid()) {
+                    map.fitBounds(bounds, { padding: [65, 65], maxZoom: 19 });
+                }
+            }
+
+            document.getElementById('cancelRouteBtn').addEventListener('click', () => {
+                activeRouteLayerGroup.clearLayers();
+                document.getElementById('routePanel').classList.add('hidden');
+                pendingDestination = null;
+
+                // Restaura a exibição de todos os pontos de interesse no mapa
+                if (!map.hasLayer(poiLayerGroup)) {
+                    poiLayerGroup.addTo(map);
+                }
+            });
+
+            // --- INICIALIZAÇÃO AUTOMÁTICA DOS SHAPEFILES ---
+            (async function initDefaultShapefiles() {
+                // 1. Tenta restaurar o arquivo .zip salvo anteriormente no navegador (IndexedDB)
+                const saved = await loadSavedZipBuffer();
+                if (saved && saved.buffer) {
+                    try {
+                        await loadZipFromBuffer(saved.buffer, saved.name || 'shapes consolidados.zip', 'Mapa Real Salvo', true);
+                        return;
+                    } catch (e) {
+                        console.warn('Falha ao restaurar cache do zip:', e);
+                    }
+                }
+
+                // 2. Tenta buscar "shapes consolidados.zip" na mesma pasta (servidor local / GitHub / App iOS)
+                try {
+                    const resp = await fetch('./shapes%20consolidados.zip');
+                    if (resp.ok) {
+                        const buf = await resp.arrayBuffer();
+                        await loadZipFromBuffer(buf, 'shapes consolidados.zip', 'Mapa Real Ativo', true);
+                        await saveDefaultZipBuffer(buf, 'shapes consolidados.zip');
+                    }
+                } catch (e) {
+                    // Em preview isolado sem acesso ao disco local, aguarda o clique em "Carregar .zip"
+                }
+            })();
+        });
+    </script>
+</body>
+</html>
